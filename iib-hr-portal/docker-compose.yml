@@ -1,0 +1,23 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: iib_hr_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: iib_admin
+      POSTGRES_PASSWORD: iib_secure_pass
+      POSTGRES_DB: iib_hr_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - iib_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U iib_admin -d iib_hr_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  iib_pgdata:
