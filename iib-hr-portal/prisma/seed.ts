@@ -1,4 +1,12 @@
-import { PrismaClient, Role, LeaveType, LeaveStatus, CaseStatus } from "@prisma/client";
+import {
+  PrismaClient,
+  Role,
+  LeaveType,
+  LeaveStatus,
+  CaseStatus,
+  AttendanceStatus,
+  DocumentCategory,
+} from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
@@ -303,7 +311,116 @@ async function main() {
   }
   console.log("📂 HR cases seeded.");
 
+  // ---------- Attendance history (last 45 weekdays for each employee) ----------
+  const attendanceEmployees = await prisma.employee.findMany({ select: { id: true } });
+  let attCount = 0;
+  for (const emp of attendanceEmployees) {
+    const cursor = new Date();
+    cursor.setDate(cursor.getDate() - 45);
+    while (cursor <= new Date()) {
+      const day = cursor.getDay();
+      if (day !== 0 && day !== 6) {
+        const dow = cursor.getDay();
+        // Deterministic pseudo-random pattern based on employee id + date
+        const seedChar = emp.id.charCodeAt(emp.id.length - 1) + cursor.getDate() * 7 + dow;
+        const roll = seedChar % 23; // 0..22
+        let status: AttendanceStatus = AttendanceStatus.PRESENT;
+        if (roll === 0 || roll === 11) status = AttendanceStatus.ABSENT;
+        else if (roll === 4 || roll === 17) status = AttendanceStatus.LATE;
+
+        if (status !== AttendanceStatus.ABSENT) {
+          const checkIn = new Date(cursor);
+          checkIn.setHours(status === AttendanceStatus.LATE ? 9 : 8, status === AttendanceStatus.LATE ? 35 + (roll % 15) : 45 + (roll % 12), 0, 0);
+          const checkOut = new Date(cursor);
+          const overtimeDay = roll % 5 === 2;
+          checkOut.setHours(overtimeDay ? 18 : 17, overtimeDay ? 45 : 15, 0, 0);
+          const workHours = (checkOut.getTime() - checkIn.getTime()) / 3_600_000;
+          const overtimeHours = Math.max(0, workHours - 8);
+
+          const d = new Date(Date.UTC(cursor.getFullYear(), cursor.getMonth(), cursor.getDate()));
+          await prisma.attendance.upsert({
+            where: { employeeId_date: { employeeId: emp.id, date: d } },
+            update: {},
+            create: {
+              employeeId: emp.id,
+              date: d,
+              checkIn,
+              checkOut,
+              status,
+              workHours: Number(workHours.toFixed(2)),
+              overtimeHours: Number(overtimeHours.toFixed(2)),
+            },
+          });
+          attCount++;
+        } else {
+          const d = new Date(Date.UTC(cursor.getFullYear(), cursor.getMonth(), cursor.getDate()));
+          await prisma.attendance.upsert({
+            where: { employeeId_date: { employeeId: emp.id, date: d } },
+            update: {},
+            create: { employeeId: emp.id, date: d, status },
+          });
+          attCount++;
+        }
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  }
+  console.log(`⏱️ Attendance history seeded (${attCount} records).`);
+
+  // ---------- Documents (metadata only; files simulated in /public/uploads) ----------
+  const docs = [
+    { title: "Employment Contract — Senior Corporate Banker", category: DocumentCategory.CONTRACTS, expiry: null },
+    { title: "Passport Copy — Compliance File", category: DocumentCategory.IDS, expiry: daysFromNow(21) },
+    { title: "Annual Tax Declaration Form 2026", category: DocumentCategory.TAX_FORMS, expiry: daysFromNow(140) },
+    { title: "iib Group Employee Handbook v4.2", category: DocumentCategory.POLICIES, expiry: null },
+    { title: "NDA — Trading Desk", category: DocumentCategory.CONTRACTS, expiry: daysFromNow(18) },
+  ];
+  for (const doc of docs) {
+    const exists = await prisma.document.findFirst({ where: { title: doc.title } });
+    if (!exists) {
+      await prisma.document.create({
+        data: {
+          title: doc.title,
+          category: doc.category,
+          fileName: `${doc.title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.pdf`,
+          storedName: `sample-${Math.random().toString(36).slice(2, 10)}.pdf`,
+          mimeType: "application/pdf",
+          size: 245_760,
+          expiryDate: doc.expiry,
+          uploadedById: hr.id,
+          employeeId: empEmployee.id,
+        },
+      });
+    }
+  }
+  console.log("🗄️ Sample documents seeded.");
+
+  // ---------- Company profile ----------
+  const profileExists = await prisma.companyProfile.findFirst();
+  if (!profileExists) {
+    await prisma.companyProfile.create({
+      data: {
+        name: "iib Group",
+        address: "iib Tower, Avenue 43, Block 317, Seef District, Manama, Kingdom of Bahrain",
+        phone: "+973 17 555 000",
+        email: "hr@iibanks.com",
+        website: "https://iibanks.com",
+        logoUrl: "",
+        workStart: "09:00",
+        workEnd: "17:30",
+      },
+    });
+  }
+  console.log("🏛️ Company profile ready.");
+
   console.log("✅ Seed complete. Demo login password for all accounts: IIB@2026!");
+}
+
+function daysFromNow(days: number): Date {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  d.setHours(12, 0, 0, 0);
+  return d;
 }
 
 main()

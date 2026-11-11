@@ -50,6 +50,7 @@ model User {
   approvedLeaves LeaveRequest[] @relation("ApprLeave")
   createdCases  HRCase[]       @relation("CreatedCases")
   assignedCases HRCase[]       @relation("AssignedCases")
+  documents     Document[]     @relation("DocUploader")
 
   @@map("users")
 }
@@ -78,6 +79,8 @@ model Employee {
   leaveBalances   LeaveBalance[]
   submittedLeaves LeaveRequest[] @relation("EmpLeave")
   cases           HRCase[]
+  attendance      Attendance[]
+  documents       Document[]     @relation("DocEmployee")
 
   @@map("employees")
 }
@@ -134,6 +137,69 @@ model Holiday {
   isPaid Boolean  @default(true)
 
   @@map("holidays")
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  HALF_DAY
+}
+
+enum DocumentCategory {
+  CONTRACTS
+  IDS
+  TAX_FORMS
+  POLICIES
+}
+
+model Attendance {
+  id           String           @id @default(cuid())
+  employeeId   String
+  date         DateTime         @db.Date
+  checkIn      DateTime?
+  checkOut     DateTime?
+  status       AttendanceStatus @default(PRESENT)
+  workHours    Float            @default(0)
+  overtimeHours Float           @default(0)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  employee     Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, date])
+  @@map("attendance")
+}
+
+model Document {
+  id          String           @id @default(cuid())
+  title       String
+  category    DocumentCategory
+  fileName    String
+  storedName  String
+  mimeType    String
+  size        Int
+  expiryDate  DateTime?
+  uploadedById String
+  employeeId  String?
+  createdAt   DateTime         @default(now())
+  uploadedBy  User             @relation("DocUploader", fields: [uploadedById], references: [id])
+  employee    Employee?        @relation("DocEmployee", fields: [employeeId], references: [id])
+
+  @@map("documents")
+}
+
+model CompanyProfile {
+  id        String @id @default(cuid())
+  name      String @default("iib Group")
+  address   String @default("iib Tower, District 5, Manama, Kingdom of Bahrain")
+  phone     String @default("+973 17 000 000")
+  email     String @default("hr@iibanks.com")
+  website   String @default("https://iibanks.com")
+  logoUrl   String @default("")
+  workStart String @default("09:00")
+  workEnd   String @default("17:30")
+
+  @@map("company_profile")
 }
 
 model HRCase {
