@@ -1,0 +1,222 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  HR
+  MANAGER
+  EMPLOYEE
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum LeaveType {
+  ANNUAL
+  SICK
+  PERSONAL
+  UNPAID
+  REMOTE_WORK
+}
+
+enum CaseStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+model User {
+  id            String         @id @default(cuid())
+  email         String         @unique
+  password      String
+  name          String
+  role          Role           @default(EMPLOYEE)
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  employee       Employee?
+  approvedLeaves LeaveRequest[] @relation("ApprLeave")
+  createdCases  HRCase[]       @relation("CreatedCases")
+  assignedCases HRCase[]       @relation("AssignedCases")
+  documents     Document[]     @relation("DocUploader")
+
+  @@map("users")
+}
+
+model Department {
+  id        String     @id @default(cuid())
+  name      String     @unique
+  code      String     @unique
+  employees Employee[]
+
+  @@map("departments")
+}
+
+model Employee {
+  id             String          @id @default(cuid())
+  userId         String          @unique
+  employeeNumber String          @unique
+  departmentId   String?
+  jobTitle       String?
+  joiningDate    DateTime        @default(now())
+  managerId      String?
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department     Department?     @relation(fields: [departmentId], references: [id])
+  manager        Employee?       @relation("EmpMgr", fields: [managerId], references: [id])
+  directReports  Employee[]      @relation("EmpMgr")
+  leaveBalances   LeaveBalance[]
+  submittedLeaves LeaveRequest[] @relation("EmpLeave")
+  cases           HRCase[]
+  attendance      Attendance[]
+  documents       Document[]     @relation("DocEmployee")
+
+  @@map("employees")
+}
+
+model LeavePolicy {
+  id            String         @id @default(cuid())
+  name          String         @unique
+  leaveType     LeaveType
+  totalDays     Int
+  isActive      Boolean        @default(true)
+  leaveBalances LeaveBalance[]
+
+  @@map("leave_policies")
+}
+
+model LeaveBalance {
+  id              String      @id @default(cuid())
+  employeeId      String
+  leavePolicyId   String
+  year            Int
+  totalDays       Int
+  usedDays        Int         @default(0)
+  remainingDays   Int
+  employee        Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leavePolicy     LeavePolicy @relation(fields: [leavePolicyId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, leavePolicyId, year])
+  @@map("leave_balances")
+}
+
+model LeaveRequest {
+  id          String      @id @default(cuid())
+  employeeId  String
+  approverId  String?
+  leaveType   LeaveType
+  startDate   DateTime
+  endDate     DateTime
+  totalDays   Int
+  reason      String?
+  status      LeaveStatus @default(PENDING)
+  approvedAt  DateTime?
+  rejectReason String?
+  createdAt   DateTime    @default(now())
+  employee    Employee    @relation("EmpLeave", fields: [employeeId], references: [id], onDelete: Cascade)
+  approver    User?       @relation("ApprLeave", fields: [approverId], references: [id])
+
+  @@map("leave_requests")
+}
+
+model Holiday {
+  id     String   @id @default(cuid())
+  name   String
+  date   DateTime
+  isPaid Boolean  @default(true)
+
+  @@map("holidays")
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  HALF_DAY
+}
+
+enum DocumentCategory {
+  CONTRACTS
+  IDS
+  TAX_FORMS
+  POLICIES
+}
+
+model Attendance {
+  id           String           @id @default(cuid())
+  employeeId   String
+  date         DateTime         @db.Date
+  checkIn      DateTime?
+  checkOut     DateTime?
+  status       AttendanceStatus @default(PRESENT)
+  workHours    Float            @default(0)
+  overtimeHours Float           @default(0)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  employee     Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, date])
+  @@map("attendance")
+}
+
+model Document {
+  id          String           @id @default(cuid())
+  title       String
+  category    DocumentCategory
+  fileName    String
+  storedName  String
+  mimeType    String
+  size        Int
+  expiryDate  DateTime?
+  uploadedById String
+  employeeId  String?
+  createdAt   DateTime         @default(now())
+  uploadedBy  User             @relation("DocUploader", fields: [uploadedById], references: [id])
+  employee    Employee?        @relation("DocEmployee", fields: [employeeId], references: [id])
+
+  @@map("documents")
+}
+
+model CompanyProfile {
+  id        String @id @default(cuid())
+  name      String @default("iib Group")
+  address   String @default("iib Tower, District 5, Manama, Kingdom of Bahrain")
+  phone     String @default("+973 17 000 000")
+  email     String @default("hr@iibanks.com")
+  website   String @default("https://iibanks.com")
+  logoUrl   String @default("")
+  workStart String @default("09:00")
+  workEnd   String @default("17:30")
+
+  @@map("company_profile")
+}
+
+model HRCase {
+  id           String     @id @default(cuid())
+  caseNumber   String     @unique
+  title        String
+  description  String
+  category     String
+  status       CaseStatus @default(OPEN)
+  priority     String     @default("MEDIUM")
+  createdById  String
+  assignedToId String?
+  createdAt    DateTime   @default(now())
+  createdBy    User       @relation("CreatedCases", fields: [createdById], references: [id])
+  assignedTo   User?      @relation("AssignedCases", fields: [assignedToId], references: [id])
+  employeeId   String?
+  employee     Employee?  @relation(fields: [employeeId], references: [id])
+
+  @@map("hr_cases")
+}
